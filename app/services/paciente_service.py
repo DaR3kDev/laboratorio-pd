@@ -2,37 +2,35 @@ from app.db.database import SessionLocal
 from app.repositories import paciente_repository
 from app.schemas.paciente_schema import PacienteCreate
 from fastapi import HTTPException
-from app.utils.redis_client import redis_client
 
 def crear_paciente(paciente: PacienteCreate):
     db = SessionLocal()
 
-    existente = paciente_repository.get_by_email(db, paciente.email)
+    try:
+        if paciente_repository.get_by_email(db, paciente.email):
+            raise HTTPException(400, "Ya existe un paciente con este correo")
 
-    if existente:
-        raise HTTPException(status_code=400, detail="Paciente ya existe")
+        if paciente_repository.get_by_documento(db, paciente.documento):
+            raise HTTPException(400, "Ya existe un paciente con este documento")
 
-    nuevo = paciente_repository.create(db, paciente.dict())
-    db.close()
-    return nuevo
+        return paciente_repository.create(db, paciente.dict())
+
+    finally:
+        db.close()
 
 
-def listar_pacientes():
+def listar_pacientes(page: int = 1, limit: int = 10, documento: str = None):
     db = SessionLocal()
-    pacientes = paciente_repository.get_all(db)
-    db.close()
-    return pacientes
 
+    try:
+        skip = (page - 1) * limit  # 🔥 AQUÍ está la corrección clave
 
-def bloquear_cita(paciente_id: str, horario: str):
-    key = f"paciente:{paciente_id}:horario:{horario}"
-
-    lock = redis_client.set(key, "LOCK", nx=True, ex=300)
-
-    if not lock:
-        raise HTTPException(
-            status_code=400,
-            detail="El paciente ya tiene una cita en ese horario"
+        return paciente_repository.get_all_paginated(
+            db,
+            skip,
+            limit,
+            documento
         )
 
-    return True
+    finally:
+        db.close()
